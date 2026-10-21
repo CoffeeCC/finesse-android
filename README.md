@@ -20,12 +20,18 @@ Auto's own player, in the split screen beside navigation.
 
 ### Finesse Video (experimental, parked only)
 
-A second car app, **Finesse Video**, lists Continue watching and Recently added and plays them on
-the car screen, but only while the car is stopped. Android Auto doesn't tell apps the gear, so the
-app reads the car's speed: video is allowed after 10 seconds stopped, pauses and is covered the
-moment the car moves, and never restarts by itself. If the car doesn't share its speed, video stays
-off. It draws on the surface Android Auto gives navigation apps, which Google doesn't intend for
-video, so an Android Auto update may break it, and it can't go on the Play Store.
+A second, separate app, **Finesse Video** (`video/`), lists Continue watching and Recently added
+and plays them on the car screen, but only while the car is stopped. It's its own app because
+Android Auto lists one car app per package, and Finesse is the music one. It has no sign-in of its
+own: it reads Finesse's through `SessionShareProvider`, which only apps signed with the same key may
+read, so install both from the same place. Open Finesse Video on the phone once after installing:
+it shows whether it found the sign-in, and lets Android Auto find it.
+
+Android Auto doesn't tell apps the gear, so the app reads the car's speed: video is allowed after
+10 seconds stopped, pauses and is covered the moment the car moves, and never restarts by itself.
+If the car doesn't share its speed, video stays off. It draws on the surface Android Auto gives
+navigation apps, which Google doesn't intend for video, so an Android Auto update may break it, and
+it can't go on the Play Store.
 
 In the car your phone is usually on mobile data, so Finesse needs to be reachable away from home
 (Finesse's Settings → Server → Downloads & away from home).
@@ -50,6 +56,7 @@ This is a fork of [Jellyfin for Android](https://github.com/jellyfin/jellyfin-an
 
 ```bash
 ./gradlew assembleLibreDebug      # app/build/outputs/apk/libre/debug/
+./gradlew :video:assembleDebug    # video/build/outputs/apk/debug/ (Finesse Video)
 ./gradlew testLibreDebugUnitTest
 ```
 

@@ -1,4 +1,4 @@
-package org.jellyfin.mobile.carapp
+package com.coffeecc.finesse.video
 
 import android.app.Presentation
 import android.content.pm.PackageManager
@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.Rect
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -40,9 +41,6 @@ import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.sdk.api.client.extensions.playStateApi
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.PlaybackStopInfo
-import org.koin.core.component.KoinComponent
-import org.koin.core.component.inject
-import timber.log.Timber
 import java.util.UUID
 
 /**
@@ -54,9 +52,9 @@ import java.util.UUID
 @OptIn(UnstableApi::class)
 class VideoPlayerScreen(
     carContext: CarContext,
+    private val api: ApiClient,
     private val item: BaseItemDto,
-) : Screen(carContext), SurfaceCallback, KoinComponent, DefaultLifecycleObserver {
-    private val api: ApiClient by inject()
+) : Screen(carContext), SurfaceCallback, DefaultLifecycleObserver {
 
     private val playSessionId = UUID.randomUUID().toString().replace("-", "")
     private var player: ExoPlayer? = null
@@ -120,7 +118,7 @@ class VideoPlayerScreen(
                 override fun onIsPlayingChanged(isPlaying: Boolean) = invalidate()
 
                 override fun onPlayerError(e: PlaybackException) {
-                    Timber.e(e, "Video playback failed")
+                    Log.e(TAG, "Video playback failed", e)
                     error = "Couldn't play this. Check that the phone is online."
                     render()
                     invalidate()
@@ -167,7 +165,7 @@ class VideoPlayerScreen(
         // Not the screen's scope: this runs as the screen closes, when that scope is already cancelled.
         CoroutineScope(Dispatchers.IO).launch {
             runCatching { api.playStateApi.reportPlaybackStopped(info) }
-                .onFailure { Timber.w(it, "Couldn't report the stop position") }
+                .onFailure { Log.w(TAG, "Couldn't report the stop position", it) }
         }
     }
 
@@ -311,6 +309,7 @@ class VideoPlayerScreen(
     }
 
     private companion object {
+        const val TAG = "FinesseVideo"
         const val CAR_SPEED = "com.google.android.gms.permission.CAR_SPEED"
         const val TICKS_PER_MS = 10_000L
     }

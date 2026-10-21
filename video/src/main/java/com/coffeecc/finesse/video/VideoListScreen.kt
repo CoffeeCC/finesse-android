@@ -1,4 +1,4 @@
-package org.jellyfin.mobile.carapp
+package com.coffeecc.finesse.video
 
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
@@ -11,8 +11,10 @@ import androidx.car.app.model.Row
 import androidx.car.app.model.SectionedItemList
 import androidx.car.app.model.Template
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import org.jellyfin.mobile.app.ApiClientController
+import kotlinx.coroutines.withContext
+import android.util.Log
 import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.sdk.api.client.extensions.itemsApi
 import org.jellyfin.sdk.model.api.BaseItemDto
@@ -21,15 +23,11 @@ import org.jellyfin.sdk.model.api.ItemFilter
 import org.jellyfin.sdk.model.api.ItemSortBy
 import org.jellyfin.sdk.model.api.SortOrder
 import org.jellyfin.sdk.model.extensions.ticks
-import org.koin.core.component.KoinComponent
-import org.koin.core.component.inject
-import timber.log.Timber
 import kotlin.time.Duration
 
 /** What to watch: Continue watching, then recently added films and episodes. */
-class VideoListScreen(carContext: CarContext) : Screen(carContext), KoinComponent {
-    private val api: ApiClient by inject()
-    private val apiClientController: ApiClientController by inject()
+class VideoListScreen(carContext: CarContext) : Screen(carContext) {
+    private var api: ApiClient? = null
 
     private sealed interface State {
         data object Loading : State
@@ -45,10 +43,12 @@ class VideoListScreen(carContext: CarContext) : Screen(carContext), KoinComponen
 
     private suspend fun load() {
         state = try {
-            apiClientController.loadSavedServerUser()
-            if (api.accessToken == null) {
-                State.Message("Open Finesse on your phone and sign in.")
+            val signIn = withContext(Dispatchers.IO) { SignIn.read(carContext) }
+            if (signIn !is SignIn.Result.SignedIn) {
+                State.Message(SignIn.explain(signIn))
             } else {
+                val api = signIn.api
+                this.api = api
                 val types = listOf(BaseItemKind.MOVIE, BaseItemKind.EPISODE)
                 val resume by api.itemsApi.getItems(
                     includeItemTypes = types,
@@ -69,7 +69,7 @@ class VideoListScreen(carContext: CarContext) : Screen(carContext), KoinComponen
                 State.Ready(resume.items, recent.items.filter { it.id !in resumeIds })
             }
         } catch (e: Exception) {
-            Timber.e(e, "Couldn't load videos")
+            Log.e("FinesseVideo", "Couldn't load videos", e)
             State.Message("Couldn't reach your Finesse server. Check that the phone is online (and Tailscale is on, if you use it).")
         }
         invalidate()
@@ -138,7 +138,7 @@ class VideoListScreen(carContext: CarContext) : Screen(carContext), KoinComponen
                 if (detail.isNotEmpty()) addText(detail)
                 if (resumeAt != null) addText("Resume at ${clock(resumeAt)}")
             }
-            .setOnClickListener { screenManager.push(VideoPlayerScreen(carContext, item)) }
+            .setOnClickListener { api?.let { screenManager.push(VideoPlayerScreen(carContext, it, item)) } }
             .build()
     }
 

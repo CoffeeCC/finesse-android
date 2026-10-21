@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Draw video on the surface Android Auto gives navigation apps. -->
+    <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES" />
+    <uses-permission android:name="androidx.car.app.ACCESS_SURFACE" />
+    <!-- The car's speed: video plays only while stopped (ParkedGate). -->
+    <uses-permission android:name="com.google.android.gms.permission.CAR_SPEED" />
+
+    <!-- The main Finesse app's sign-in (its SessionShareProvider). Declared here too, so the grant
+         works whichever app is installed first. -->
+    <permission
+        android:name="com.coffeecc.finesse.permission.READ_SESSION"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.coffeecc.finesse.permission.READ_SESSION" />
+
+    <queries>
+        <provider android:authorities="com.coffeecc.finesse.session" />
+        <provider android:authorities="com.coffeecc.finesse.debug.session" />
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:usesCleartextTraffic="true">
+
+        <!-- On the phone: says what this is and whether it found the sign-in. Opening it once
+             also lets Android Auto find the app. -->
+        <activity
+            android:name=".PhoneActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".FinesseVideoService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.car.app.CarAppService" />
+                <category android:name="androidx.car.app.category.NAVIGATION" />
+            </intent-filter>
+        </service>
+
+        <meta-data
+            android:name="androidx.car.app.minCarApiLevel"
+            android:value="3" />
+
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+    </application>
+</manifest>

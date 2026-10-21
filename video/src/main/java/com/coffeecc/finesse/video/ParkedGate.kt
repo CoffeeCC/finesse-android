@@ -1,4 +1,4 @@
-package org.jellyfin.mobile.carapp
+package com.coffeecc.finesse.video
 
 import android.os.Handler
 import android.os.Looper
@@ -8,7 +8,7 @@ import androidx.car.app.hardware.common.CarValue
 import androidx.car.app.hardware.common.OnCarDataAvailableListener
 import androidx.car.app.hardware.info.Speed
 import androidx.core.content.ContextCompat
-import timber.log.Timber
+import android.util.Log
 
 /**
  * Whether video may show: only while the car is stopped, judged from the car's own speed.
@@ -69,10 +69,10 @@ class ParkedGate(
             val carInfo = carContext.getCarService(CarHardwareManager::class.java).carInfo
             carInfo.addSpeedListener(ContextCompat.getMainExecutor(carContext), listener)
         } catch (e: SecurityException) {
-            Timber.w(e, "No permission to read the car's speed")
+            Log.w(TAG, "No permission to read the car's speed", e)
             set(State.Unknown)
         } catch (e: IllegalStateException) {
-            Timber.w(e, "The car's speed isn't available")
+            Log.w(TAG, "The car's speed isn't available", e)
             set(State.Unknown)
         }
     }
@@ -84,6 +84,10 @@ class ParkedGate(
         runCatching {
             carContext.getCarService(CarHardwareManager::class.java).carInfo.removeSpeedListener(listener)
         }
+    }
+
+    private companion object {
+        const val TAG = "FinesseVideo"
     }
 
     private fun set(next: State) {

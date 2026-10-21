@@ -1,4 +1,4 @@
-package org.jellyfin.mobile.carapp
+package com.coffeecc.finesse.video
 
 import android.content.Intent
 import android.content.pm.ApplicationInfo
@@ -11,7 +11,8 @@ import androidx.car.app.validation.HostValidator
  * "Finesse Video" on the car screen: films and episodes from the Finesse server, played on the
  * surface Android Auto gives navigation apps — and only while the car is parked (see [ParkedGate]).
  *
- * Music in the car is a separate, standard media app (sessionbrowser/LibraryService).
+ * Music in the car is the main Finesse app's media service; this is its own app because Android
+ * Auto lists one car app per package.
  */
 class FinesseVideoService : CarAppService() {
     override fun createHostValidator(): HostValidator {
