@@ -89,6 +89,16 @@
             </intent-filter>
         </service>
 
+        <!-- Lets Bluetooth play buttons and the system media card start the app's music again
+             (playback resumption, see PlaybackResumptionStore). -->
+        <receiver
+            android:name="androidx.media3.session.MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
         <receiver
             android:name="androidx.mediarouter.media.MediaTransferReceiver"
             android:exported="true"

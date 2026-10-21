@@ -2,6 +2,9 @@ package org.jellyfin.mobile.sessionbrowser
 
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
@@ -31,8 +34,21 @@ class LibraryService : MediaLibraryService() {
             .build()
     }
 
+    private val resumption: PlaybackResumptionStore by lazy { PlaybackResumptionStore(this) }
+
     private val callback: MediaLibrarySession.Callback by lazy {
-        SessionBrowserCallback(this, apiClient)
+        SessionBrowserCallback(this, apiClient, resumption)
+    }
+
+    // Remember what's playing whenever it changes, so it can be resumed later (see PlaybackResumptionStore).
+    private val rememberPlayback = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = resumption.save(exoPlayer)
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) = resumption.save(exoPlayer)
+
+        override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+            if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) resumption.save(exoPlayer)
+        }
     }
 
     override fun onGetSession(
@@ -43,9 +59,12 @@ class LibraryService : MediaLibraryService() {
         super.onCreate()
 
         runBlocking { apiClientController.loadSavedServerUser() }
+        exoPlayer.addListener(rememberPlayback)
     }
 
     override fun onDestroy() {
+        resumption.save(exoPlayer)
+        exoPlayer.removeListener(rememberPlayback)
         exoPlayer.release()
         mediaLibrarySession.release()
 

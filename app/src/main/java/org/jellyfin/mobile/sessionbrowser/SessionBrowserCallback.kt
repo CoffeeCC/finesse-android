@@ -41,8 +41,10 @@ import org.jellyfin.mobile.sessionbrowser.page.SearchLibraryPage
 import org.jellyfin.mobile.sessionbrowser.page.SuggestedLibraryPage
 import org.jellyfin.mobile.sessionbrowser.page.UserViewLibraryPage
 import org.jellyfin.sdk.api.client.ApiClient
+import org.jellyfin.sdk.api.client.extensions.itemsApi
 import org.jellyfin.sdk.api.client.extensions.universalAudioApi
 import org.jellyfin.sdk.api.client.extensions.userLibraryApi
+import org.jellyfin.sdk.model.api.ImageType
 import org.jellyfin.sdk.model.api.MediaStreamProtocol
 import org.jellyfin.sdk.model.extensions.ticks
 import timber.log.Timber
@@ -51,6 +53,7 @@ import timber.log.Timber
 class SessionBrowserCallback(
     private val context: Context,
     private val api: ApiClient,
+    private val resumption: PlaybackResumptionStore,
 ) : MediaLibrarySession.Callback {
     companion object {
         const val MAX_PAGE_SIZE = 250
@@ -437,5 +440,49 @@ class SessionBrowserCallback(
             )
         }
         MediaSession.MediaItemsWithStartPosition(expandedItems, newStartIndex, newStartPositionMs)
+    }
+
+    /**
+     * Something wants the last music back: Android Auto starting music automatically when the phone
+     * connects, a Bluetooth play button, or the system media card. Rebuild what was playing from
+     * [PlaybackResumptionStore]. Failing the future tells the system there is nothing to resume.
+     */
+    override fun onPlaybackResumption(
+        mediaSession: MediaSession,
+        controller: MediaSession.ControllerInfo,
+        isForPlayback: Boolean,
+    ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = CoroutineScope(Dispatchers.IO).future {
+        Timber.d("onPlaybackResumption $controller isForPlayback=$isForPlayback")
+
+        val saved = resumption.load() ?: throw UnsupportedOperationException("Nothing played yet")
+        val ids = saved.mediaIds.map { id ->
+            runCatching { Json.decodeFromString<LibraryMediaId>(id) as? LibraryMediaId.Item }.getOrNull()
+        }
+        val wanted = ids.filterNotNull()
+        if (wanted.isEmpty()) throw UnsupportedOperationException("Nothing to resume")
+
+        val result by api.itemsApi.getItems(
+            ids = wanted.map { it.itemId }.distinct(),
+            imageTypeLimit = 1,
+            enableImageTypes = listOf(ImageType.PRIMARY),
+        )
+        val byId = result.items.associateBy { it.id }
+
+        // Songs deleted since are skipped; the current one is found again by its id.
+        val items = wanted.mapNotNull { id ->
+            byId[id.itemId]?.let { item -> LibraryPageElement.baseItem(api, item).toMediaItem(id.route) }
+        }
+        if (items.isEmpty()) throw UnsupportedOperationException("The songs are gone")
+
+        val currentId = ids.getOrNull(saved.index)?.itemId
+        val index = items.indexOfFirst {
+            (Json.decodeFromString<LibraryMediaId>(it.mediaId) as? LibraryMediaId.Item)?.itemId == currentId
+        }
+        val playable = onAddMediaItems(mediaSession, controller, items).await()
+        if (index < 0) {
+            MediaSession.MediaItemsWithStartPosition(playable, 0, 0)
+        } else {
+            MediaSession.MediaItemsWithStartPosition(playable, index, saved.positionMs)
+        }
     }
 }
