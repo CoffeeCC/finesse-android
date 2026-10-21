@@ -2,6 +2,7 @@ package org.jellyfin.mobile.sessionbrowser
 
 import android.content.ContentResolver
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.core.os.bundleOf
@@ -58,6 +59,12 @@ class SessionBrowserCallback(
     companion object {
         const val MAX_PAGE_SIZE = 250
         const val MEDIA_ITEM_EXTRA_START_POSITION = "start_position"
+
+        // Android Auto, and the desktop head unit used to test it.
+        private val CAR_HOST_PACKAGES = listOf(
+            "com.google.android.projection.gearhead",
+            "com.google.android.apps.automotive.templates.host",
+        )
     }
 
     val pages = listOf(
@@ -118,6 +125,7 @@ class SessionBrowserCallback(
                 setIsPlayable(action is LibraryItemAction.Play)
 
                 if (image != null) {
+                    grantToCarHosts(image)
                     setArtworkUri(image)
                 } else if (iconRes != null) {
                     setArtworkUri(iconRes.asResourceUri())
@@ -127,6 +135,17 @@ class SessionBrowserCallback(
             }.build(),
         )
     }.build()
+
+    /**
+     * Artwork is served by the app's ImageProvider, which only apps holding a system media permission
+     * may read. Let Android Auto read each artwork address outright, so the art shows on any phone.
+     */
+    private fun grantToCarHosts(uri: Uri) {
+        if (uri.scheme != ContentResolver.SCHEME_CONTENT) return
+        for (pkg in CAR_HOST_PACKAGES) {
+            runCatching { context.grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        }
+    }
 
     private fun Int.asResourceUri() = Uri.Builder()
         .scheme(ContentResolver.SCHEME_ANDROID_RESOURCE)
