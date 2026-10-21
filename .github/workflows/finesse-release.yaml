@@ -1,7 +1,7 @@
 name: Finesse / Release
 
 # A tag like v0.2.0 builds the signed Finesse app (libre flavor) and attaches it to that GitHub
-# release. Finesse Video (video/) isn't released: Android Auto only lists it when installed from
+# release, created from docs/releases/<tag>.md when there is one. Finesse Video (video/) isn't released: Android Auto only lists it when installed from
 # Google Play. Needs the signing key as secrets (KEYSTORE as base64, KEYSTORE_PASSWORD, KEY_ALIAS,
 # KEY_PASSWORD); without them it skips, so nothing gets signed with the wrong key.
 on:
@@ -62,5 +62,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           apk=$(ls app/build/outputs/apk/libre/release/finesse-android-*-libre-release.apk)
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "Finesse for Android ${GITHUB_REF_NAME#v}" --generate-notes
+          notes="docs/releases/$GITHUB_REF_NAME.md"
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            if [ -f "$notes" ]; then
+              gh release create "$GITHUB_REF_NAME" --title "Finesse for Android ${GITHUB_REF_NAME#v}" --notes-file "$notes"
+            else
+              gh release create "$GITHUB_REF_NAME" --title "Finesse for Android ${GITHUB_REF_NAME#v}" --generate-notes
+            fi
+          fi
           gh release upload "$GITHUB_REF_NAME" "$apk" --clobber
