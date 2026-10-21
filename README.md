@@ -18,6 +18,15 @@ Auto's own player, in the split screen beside navigation.
    settings, then ⋮ → **Developer settings** → turn on **Unknown sources**. Finesse then appears
    in the car's app list.
 
+### Finesse Video (experimental, parked only)
+
+A second car app, **Finesse Video**, lists Continue watching and Recently added and plays them on
+the car screen, but only while the car is stopped. Android Auto doesn't tell apps the gear, so the
+app reads the car's speed: video is allowed after 10 seconds stopped, pauses and is covered the
+moment the car moves, and never restarts by itself. If the car doesn't share its speed, video stays
+off. It draws on the surface Android Auto gives navigation apps, which Google doesn't intend for
+video, so an Android Auto update may break it, and it can't go on the Play Store.
+
 In the car your phone is usually on mobile data, so Finesse needs to be reachable away from home
 (Finesse's Settings → Server → Downloads & away from home).
 

@@ -50,6 +50,7 @@ coil = "3.6.3"
 androidx-media = "1.8.0"
 androidx-mediarouter = "1.8.1"
 androidx-media3 = "1.11.1"
+androidx-car-app = "1.7.0"
 jellyfin-androidx-media = "1.9.0+1"
 playservices = "22.3.1"
 libass-media = "0.5.1"
@@ -129,6 +130,8 @@ coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref 
 # Media
 androidx-media = { group = "androidx.media", name = "media", version.ref = "androidx-media" }
 androidx-mediarouter = { group = "androidx.mediarouter", name = "mediarouter", version.ref = "androidx-mediarouter" }
+androidx-car-app = { module = "androidx.car.app:app", version.ref = "androidx-car-app" }
+androidx-car-app-projected = { module = "androidx.car.app:app-projected", version.ref = "androidx-car-app" }
 androidx-media3-common = { module = "androidx.media3:media3-common", version.ref = "androidx-media3" }
 androidx-media3-ui = { module = "androidx.media3:media3-ui", version.ref = "androidx-media3" }
 androidx-media3-session = { module = "androidx.media3:media3-session", version.ref = "androidx-media3" }
