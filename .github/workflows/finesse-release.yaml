@@ -1,0 +1,66 @@
+name: Finesse / Release
+
+# A tag like v0.2.0 builds the signed Finesse app (libre flavor) and attaches it to that GitHub
+# release. Finesse Video (video/) isn't released: Android Auto only lists it when installed from
+# Google Play. Needs the signing key as secrets (KEYSTORE as base64, KEYSTORE_PASSWORD, KEY_ALIAS,
+# KEY_PASSWORD); without them it skips, so nothing gets signed with the wrong key.
+on:
+  push:
+    tags:
+      - v*
+
+jobs:
+  release:
+    name: Build and attach the APK
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check for the signing key
+        id: key
+        env:
+          KEYSTORE: ${{ secrets.KEYSTORE }}
+        run: |
+          if [ -z "$KEYSTORE" ]; then
+            echo "::warning::No KEYSTORE secret, so no signed build. Add the signing key as repository secrets (see README)."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout repository
+        if: steps.key.outputs.present == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Java
+        if: steps.key.outputs.present == 'true'
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version-file: .tools-versions
+
+      - name: Setup Gradle
+        if: steps.key.outputs.present == 'true'
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - name: Build the signed APK
+        if: steps.key.outputs.present == 'true'
+        env:
+          KEYSTORE_FILE: ${{ github.workspace }}/keystore.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo "${{ secrets.KEYSTORE }}" | base64 --decode > keystore.jks
+          export JELLYFIN_VERSION="${GITHUB_REF_NAME#v}"
+          ./gradlew :app:assembleLibreRelease
+          rm keystore.jks
+
+      - name: Attach it to the release
+        if: steps.key.outputs.present == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          apk=$(ls app/build/outputs/apk/libre/release/finesse-android-*-libre-release.apk)
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "Finesse for Android ${GITHUB_REF_NAME#v}" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" "$apk" --clobber

@@ -9,8 +9,9 @@ Auto's own player, in the split screen beside navigation.
 
 ## Install
 
-1. Download the `.apk` from [Releases](https://github.com/CoffeeCC/finesse-android/releases) and open it on
-   your phone (allow installing from your browser when Android asks).
+1. Download `finesse-android-v….apk` from [Releases](https://github.com/CoffeeCC/finesse-android/releases)
+   and open it on your phone (allow installing from your browser when Android asks). Updates
+   install over it the same way.
 2. Open **Finesse**, type your Finesse address (for example `192.168.1.20:8080`, or your
    Tailscale / Cloudflare address for use away from home) and sign in.
 3. **Android Auto** only lists apps from the Play Store unless you allow others:
@@ -58,6 +59,27 @@ This is a fork of [Jellyfin for Android](https://github.com/jellyfin/jellyfin-an
 ./gradlew assembleLibreDebug      # app/build/outputs/apk/libre/debug/
 ./gradlew :video:assembleDebug    # video/build/outputs/apk/debug/ (Finesse Video)
 ./gradlew testLibreDebugUnitTest
+```
+
+## Releasing
+
+Releases are signed with the Finesse for Android key. Android only installs an update over an app
+signed with the same key, so **keep that key safe and never commit it**. A tag `vX.Y.Z` runs
+`.github/workflows/finesse-release.yaml`, which builds the signed app and attaches it to the
+release, once the key is stored as repository secrets (Settings → Secrets and variables → Actions):
+
+| Secret | Value |
+|---|---|
+| `KEYSTORE` | the keystore file, base64 (`base64 -w0 finesse-android-release.jks`) |
+| `KEYSTORE_PASSWORD` | its password |
+| `KEY_ALIAS` | `finesse` |
+| `KEY_PASSWORD` | the same password |
+
+Without them the workflow skips. To build by hand instead:
+
+```bash
+JELLYFIN_VERSION=0.2.0 KEYSTORE_FILE=… KEYSTORE_PASSWORD=… SIGNING_KEY_ALIAS=finesse \
+  SIGNING_KEY_PASSWORD=… ./gradlew :app:assembleLibreRelease
 ```
 
 ## License
