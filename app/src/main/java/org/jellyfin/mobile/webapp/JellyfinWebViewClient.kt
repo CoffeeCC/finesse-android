@@ -12,9 +12,8 @@ import androidx.webkit.WebViewFeature
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jellyfin.mobile.MainViewModel
 import org.jellyfin.mobile.data.entity.ServerEntity
@@ -26,7 +25,6 @@ import timber.log.Timber
 import java.io.Reader
 import java.util.Locale
 import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 
 abstract class JellyfinWebViewClient(
@@ -44,9 +42,10 @@ abstract class JellyfinWebViewClient(
         val url = request.url
         val path = url.path?.lowercase(Locale.ROOT) ?: return null
         return when {
-            path.matches(Constants.MAIN_BUNDLE_PATH_REGEX) && "deferred" !in url.query.orEmpty() -> {
+            // Finesse's own bundle: Finesse answered. It loads as it is (no jellyfin-web shell injected).
+            path.matches(Constants.FINESSE_BUNDLE_PATH_REGEX) -> {
                 onConnectedToWebapp()
-                assetsPathHandler.inject("native/injectionScript.js")
+                null
             }
             // Load injected scripts from application assets
             path.contains("/native/") -> assetsPathHandler.inject("native/${url.lastPathSegment}")
@@ -54,23 +53,18 @@ abstract class JellyfinWebViewClient(
             path.endsWith(Constants.CAST_SDK_PATH) -> assetsPathHandler.inject("native/chrome.cast.js")
             path.endsWith(Constants.SESSION_CAPABILITIES_PATH) -> {
                 coroutineScope.launch {
-                    val credentials = suspendCoroutine { continuation ->
+                    // Finesse reports what it can play right after it signs in; its sign-in is in
+                    // localStorage. Handing it to the app lets the player and Android Auto use it.
+                    val session = suspendCoroutine { continuation ->
                         webView.evaluateJavascript(
-                            "JSON.parse(window.localStorage.getItem('jellyfin_credentials'))",
+                            "JSON.parse(window.localStorage.getItem('${Constants.FINESSE_SESSION_KEY}'))",
                         ) { result ->
-                            try {
-                                continuation.resume(Json.parseToJsonElement(result).jsonObject)
-                            } catch (e: Exception) {
-                                val message = "Failed to extract credentials"
-                                Timber.e(e, message)
-                                continuation.resumeWithException(Exception(message, e))
-                            }
+                            continuation.resume(runCatching { Json.parseToJsonElement(result) as? JsonObject }.getOrNull())
                         }
                     }
 
-                    val storedServer = credentials["Servers"]?.jsonArray?.get(0)?.jsonObject
-                    val user = storedServer?.get("UserId")?.jsonPrimitive?.contentOrNull?.toUUIDOrNull()
-                    val token = storedServer?.get("AccessToken")?.jsonPrimitive?.contentOrNull
+                    val user = session?.get("userId")?.jsonPrimitive?.contentOrNull?.toUUIDOrNull()
+                    val token = session?.get("token")?.jsonPrimitive?.contentOrNull
 
                     if (user == null || token == null) {
                         Timber.e("Unable to find user in webview credentials")

@@ -37,6 +37,7 @@ import org.jellyfin.mobile.utils.AndroidVersion
 import org.jellyfin.mobile.utils.BackPressInterceptor
 import org.jellyfin.mobile.utils.Constants
 import org.jellyfin.mobile.utils.Constants.FRAGMENT_WEB_VIEW_EXTRA_SERVER
+import org.jellyfin.mobile.utils.FinesseUrls
 import org.jellyfin.mobile.utils.applyDefault
 import org.jellyfin.mobile.utils.applyWindowInsetsAsMargins
 import org.jellyfin.mobile.utils.dip
@@ -169,7 +170,11 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
     }
 
     override fun onInterceptBackPressed(): Boolean {
-        return connected && webappFunctionChannel.goBack()
+        // Finesse keeps its own history: Back goes back a page in it, and leaves the app from the first one.
+        val webView = webViewBinding?.webView ?: return false
+        if (!connected || !webView.canGoBack()) return false
+        webView.goBack()
+        return true
     }
 
     override fun onDestroyView() {
@@ -190,7 +195,7 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
         addJavascriptInterface(externalPlayer, "ExternalPlayer")
         addJavascriptInterface(mediaSegments, "MediaSegments")
 
-        loadUrl("${server.hostname.trimEnd('/')}/")
+        loadUrl(FinesseUrls.webappAddress(server.hostname))
         postDelayed(timeoutRunnable, Constants.INITIAL_CONNECTION_TIMEOUT)
         postDelayed(showLoadingContainerRunnable, Constants.SHOW_PROGRESS_BAR_DELAY)
     }

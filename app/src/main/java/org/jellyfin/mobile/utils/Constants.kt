@@ -8,7 +8,7 @@ import org.jellyfin.mobile.BuildConfig
 @Suppress("MagicNumber")
 object Constants {
     // App Info
-    const val APP_INFO_NAME = "Jellyfin for Android"
+    const val APP_INFO_NAME = "Finesse for Android"
     const val APP_INFO_VERSION: String = BuildConfig.VERSION_NAME
 
     // Webapp constants
@@ -16,6 +16,12 @@ object Constants {
     const val SHOW_PROGRESS_BAR_DELAY = 1000L
     const val INITIAL_CONNECTION_TIMEOUT = 10000L // 10 seconds
     val MAIN_BUNDLE_PATH_REGEX = Regex(""".*/main\.[^/\s]+\.bundle\.js""")
+
+    // Finesse: the app is served at <server>/finesse/ and Jellyfin behind it at <server>/jellyfin.
+    // Its main bundle loading means Finesse (not an error page) answered.
+    val FINESSE_BUNDLE_PATH_REGEX = Regex(""".*/finesse/assets/index-[^/\s]+\.js""")
+    // Where Finesse keeps its sign-in: {"server": ".../jellyfin", "token": "...", "userId": "..."}.
+    const val FINESSE_SESSION_KEY = "finesse.session"
     const val CAST_SDK_PATH = "cast_sender.js"
     const val SESSION_CAPABILITIES_PATH = "sessions/capabilities/full"
 

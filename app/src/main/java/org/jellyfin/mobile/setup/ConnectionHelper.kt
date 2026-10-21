@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import org.jellyfin.mobile.R
+import org.jellyfin.mobile.utils.FinesseUrls
 import org.jellyfin.mobile.ui.state.CheckUrlState
 import org.jellyfin.sdk.Jellyfin
 import org.jellyfin.sdk.discovery.LocalServerDiscovery
@@ -23,7 +24,8 @@ class ConnectionHelper(
         Timber.i("checkServerUrlAndConnection $enteredUrl")
 
         val candidates = withContext(Dispatchers.IO) {
-            jellyfin.discovery.getAddressCandidates(enteredUrl)
+            // Finesse runs Jellyfin at <its address>/jellyfin: look for that.
+            jellyfin.discovery.getAddressCandidates(FinesseUrls.jellyfinAddress(enteredUrl))
         }
         Timber.i("Address candidates are $candidates")
 
@@ -34,6 +36,8 @@ class ConnectionHelper(
         val goodServers = mutableListOf<RecommendedServerInfo>()
         val greatServer = withContext(Dispatchers.IO) {
             jellyfin.discovery.getRecommendedServers(candidates)
+        }.filter { recommendedServer ->
+            FinesseUrls.samePort(enteredUrl, recommendedServer.address)
         }.firstOrNull { recommendedServer ->
             when (recommendedServer.score) {
                 RecommendedServerInfoScore.GREAT -> true
