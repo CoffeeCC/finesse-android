@@ -53,6 +53,7 @@
     <string name="media_service_car_section_audiobooks">Audiobooks</string>
     <string name="media_service_car_section_artists">Artists</string>
     <string name="media_service_car_section_songs">Songs</string>
+    <string name="media_service_car_section_top_result">Top result</string>
     <string name="media_service_car_section_genres">Genres</string>
     <string name="media_service_car_section_playlists">Playlists</string>
     <string name="media_service_car_item_no_title">No title</string>

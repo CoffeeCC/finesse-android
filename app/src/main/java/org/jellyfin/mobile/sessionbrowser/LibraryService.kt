@@ -36,6 +36,8 @@ class LibraryService : MediaLibraryService() {
 
     private val resumption: PlaybackResumptionStore by lazy { PlaybackResumptionStore(this) }
 
+    private val reporter: PlaybackReporter by lazy { PlaybackReporter(exoPlayer, apiClient) }
+
     private val callback: MediaLibrarySession.Callback by lazy {
         SessionBrowserCallback(this, apiClient, resumption)
     }
@@ -60,11 +62,13 @@ class LibraryService : MediaLibraryService() {
 
         runBlocking { apiClientController.loadSavedServerUser() }
         exoPlayer.addListener(rememberPlayback)
+        reporter.attach()
     }
 
     override fun onDestroy() {
         resumption.save(exoPlayer)
         exoPlayer.removeListener(rememberPlayback)
+        reporter.release()
         exoPlayer.release()
         mediaLibrarySession.release()
 
