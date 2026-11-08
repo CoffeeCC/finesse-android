@@ -55,8 +55,10 @@ object VoicePlay {
 
         return when (request.focus) {
             FOCUS_ARTIST -> MusicSearch.best(api, request.artist ?: request.query, BaseItemKind.MUSIC_ARTIST)
-            FOCUS_ALBUM -> MusicSearch.best(api, request.album ?: request.query, BaseItemKind.MUSIC_ALBUM, request.artist)
-            FOCUS_SONG -> MusicSearch.best(api, request.title ?: request.query, BaseItemKind.AUDIO, request.artist)
+            FOCUS_ALBUM ->
+                MusicSearch.best(api, request.album ?: request.query, BaseItemKind.MUSIC_ALBUM, request.artist)
+            FOCUS_SONG ->
+                MusicSearch.best(api, request.title ?: request.query, BaseItemKind.AUDIO, request.artist)
             FOCUS_PLAYLIST -> MusicSearch.best(api, request.playlist ?: request.query, BaseItemKind.PLAYLIST)
             else -> null
         }?.let(::queueFor) ?: anything(api, request.query)

@@ -54,7 +54,10 @@ class PlaybackReporter(private val player: Player, private val api: ApiClient) :
     fun release() {
         player.removeListener(this)
         ticker?.cancel()
-        current?.let { remember(it); stop(it, finished = player.playbackState == Player.STATE_ENDED) }
+        current?.let {
+            remember(it)
+            stop(it, finished = player.playbackState == Player.STATE_ENDED)
+        }
         current = null
     }
 
@@ -84,7 +87,11 @@ class PlaybackReporter(private val player: Player, private val api: ApiClient) :
         }
     }
 
-    override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+    override fun onPositionDiscontinuity(
+        oldPosition: Player.PositionInfo,
+        newPosition: Player.PositionInfo,
+        reason: Int,
+    ) {
         if (reason == Player.DISCONTINUITY_REASON_SEEK) current?.takeIf { it.started }?.let(::progress)
     }
 

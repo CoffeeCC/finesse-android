@@ -238,10 +238,28 @@ class SessionBrowserCallback(
             .orEmpty()
     }
 
-    private fun MediaItem.itemIdOrNull(): UUID? =
-        (runCatching { Json.decodeFromString<LibraryMediaId>(mediaId) }.getOrNull() as? LibraryMediaId.Item)?.itemId
+    /** What to play for a voice request, and which of it to start at. */
+    private suspend fun voiceQueue(requested: MediaItem): Pair<List<MediaItem>, Int> {
+        val request = VoicePlay.Request.from(requested.requestMetadata.searchQuery, requested.requestMetadata.extras)
+        Timber.d("Search requested $request")
 
-    private fun MediaItem.isPlayableItem() = itemIdOrNull() != null
+        val queue = VoicePlay.resolve(api, request)
+        val items = when (queue) {
+            is VoicePlay.Queue.Single -> listOf(
+                LibraryPageElement.baseItem(api, queue.item).toMediaItem(LibraryRoute.Search(request.query)),
+            )
+            is VoicePlay.Queue.FromRoute -> contentOf(queue.route).filter { it.itemIdOrNull() != null }
+            null -> emptyList()
+        }
+
+        // Android Auto does not support session error reporting
+        // but Google Play requires feedback on all search requests
+        // so fall back to shuffling everything if nothing matched
+        if (items.isEmpty()) return contentOf(LibraryRoute.ShuffleAll) to 0
+
+        val startItemId = (queue as? VoicePlay.Queue.FromRoute)?.startItemId ?: return items to 0
+        return items to items.indexOfFirst { it.itemIdOrNull() == startItemId }.coerceAtLeast(0)
+    }
 
     override fun onGetLibraryRoot(
         session: MediaLibrarySession,
@@ -413,31 +431,9 @@ class SessionBrowserCallback(
             when {
                 // Play via search: "Hey Google, play … on Finesse"
                 firstItem.mediaId == MediaItem.DEFAULT_MEDIA_ID && firstItem.requestMetadata.mediaUri == null -> {
-                    val request = VoicePlay.Request.from(
-                        firstItem.requestMetadata.searchQuery,
-                        firstItem.requestMetadata.extras,
-                    )
-                    Timber.d("Search requested $request")
-
-                    val queue = VoicePlay.resolve(api, request)
-                    expandedItems = when (queue) {
-                        is VoicePlay.Queue.Single -> listOf(
-                            LibraryPageElement.baseItem(api, queue.item).toMediaItem(LibraryRoute.Search(request.query)),
-                        )
-                        is VoicePlay.Queue.FromRoute -> contentOf(queue.route).filter { it.isPlayableItem() }
-                        null -> emptyList()
-                    }
-
-                    // Android Auto does not support session error reporting
-                    // but Google Play requires feedback on all search requests
-                    // so fall back to shuffling everything if nothing matched
-                    if (expandedItems.isEmpty()) {
-                        expandedItems = contentOf(LibraryRoute.ShuffleAll)
-                    }
-
-                    val startItemId = (queue as? VoicePlay.Queue.FromRoute)?.startItemId
-                    newStartIndex = expandedItems.indexOfFirst { it.itemIdOrNull() == startItemId }
-                        .takeIf { startItemId != null && it >= 0 } ?: 0
+                    val (items, index) = voiceQueue(firstItem)
+                    expandedItems = items
+                    newStartIndex = index
                 }
 
                 // Expand media item to full playlist
@@ -524,3 +520,6 @@ class SessionBrowserCallback(
         }
     }
 }
+
+private fun MediaItem.itemIdOrNull(): UUID? =
+    (runCatching { Json.decodeFromString<LibraryMediaId>(mediaId) }.getOrNull() as? LibraryMediaId.Item)?.itemId
