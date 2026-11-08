@@ -28,7 +28,7 @@ object VoicePlay {
                 artist = extras?.getString(MediaStore.EXTRA_MEDIA_ARTIST)?.takeIf { it.isNotBlank() },
                 album = extras?.getString(MediaStore.EXTRA_MEDIA_ALBUM)?.takeIf { it.isNotBlank() },
                 title = extras?.getString(MediaStore.EXTRA_MEDIA_TITLE)?.takeIf { it.isNotBlank() },
-                playlist = extras?.getString(MediaStore.EXTRA_MEDIA_PLAYLIST)?.takeIf { it.isNotBlank() },
+                playlist = extras?.getString(EXTRA_PLAYLIST)?.takeIf { it.isNotBlank() },
             )
         }
     }
@@ -44,7 +44,9 @@ object VoicePlay {
     private const val FOCUS_ARTIST = MediaStore.Audio.Artists.ENTRY_CONTENT_TYPE
     private const val FOCUS_ALBUM = MediaStore.Audio.Albums.ENTRY_CONTENT_TYPE
     private const val FOCUS_SONG = MediaStore.Audio.Media.ENTRY_CONTENT_TYPE
-    private const val FOCUS_PLAYLIST = MediaStore.Audio.Playlists.ENTRY_CONTENT_TYPE
+    // Android deprecated its playlist constants, but the Assistant still sends these.
+    private const val FOCUS_PLAYLIST = "vnd.android.cursor.item/playlist"
+    private const val EXTRA_PLAYLIST = "android.intent.extra.playlist"
 
     // "bohemian rhapsody by queen"
     private val byArtist = Regex("^(.+?)\\s+by\\s+(.+)$", RegexOption.IGNORE_CASE)
