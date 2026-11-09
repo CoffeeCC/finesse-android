@@ -49,6 +49,14 @@ sealed interface LibraryRoute {
     @Serializable
     data class Artist(val artistId: UUID) : LibraryRoute
 
+    /** Every song by the artist, shuffled. */
+    @Serializable
+    data class ArtistShuffle(val artistId: UUID) : LibraryRoute
+
+    /** Every song, shuffled: "play music" by voice, and what plays when nothing matched. */
+    @Serializable
+    data object ShuffleAll : LibraryRoute
+
     @Serializable
     data class Favorites(val libraryId: UUID) : LibraryRoute
 

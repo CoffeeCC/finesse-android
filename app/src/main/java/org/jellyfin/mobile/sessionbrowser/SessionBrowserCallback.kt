@@ -27,6 +27,7 @@ import org.jellyfin.mobile.sessionbrowser.page.AlbumLibraryPage
 import org.jellyfin.mobile.sessionbrowser.page.AlbumsAlphaLibraryPage
 import org.jellyfin.mobile.sessionbrowser.page.AlbumsLibraryPage
 import org.jellyfin.mobile.sessionbrowser.page.ArtistLibraryPage
+import org.jellyfin.mobile.sessionbrowser.page.ArtistShuffleLibraryPage
 import org.jellyfin.mobile.sessionbrowser.page.ArtistsAlphaLibraryPage
 import org.jellyfin.mobile.sessionbrowser.page.ArtistsLibraryPage
 import org.jellyfin.mobile.sessionbrowser.page.AudioBooksAlphaLibraryPage
@@ -39,6 +40,7 @@ import org.jellyfin.mobile.sessionbrowser.page.PlaylistsLibraryPage
 import org.jellyfin.mobile.sessionbrowser.page.RecentLibraryPage
 import org.jellyfin.mobile.sessionbrowser.page.RootLibraryPage
 import org.jellyfin.mobile.sessionbrowser.page.SearchLibraryPage
+import org.jellyfin.mobile.sessionbrowser.page.ShuffleAllLibraryPage
 import org.jellyfin.mobile.sessionbrowser.page.SuggestedLibraryPage
 import org.jellyfin.mobile.sessionbrowser.page.UserViewLibraryPage
 import org.jellyfin.sdk.api.client.ApiClient
@@ -49,6 +51,7 @@ import org.jellyfin.sdk.model.api.ImageType
 import org.jellyfin.sdk.model.api.MediaStreamProtocol
 import org.jellyfin.sdk.model.extensions.ticks
 import timber.log.Timber
+import java.util.UUID
 
 @Suppress("InjectDispatcher")
 class SessionBrowserCallback(
@@ -78,6 +81,8 @@ class SessionBrowserCallback(
         ArtistsLibraryPage(api),
         ArtistsAlphaLibraryPage,
         ArtistLibraryPage(api),
+        ArtistShuffleLibraryPage(api),
+        ShuffleAllLibraryPage(api),
         FavoritesLibraryPage(api),
         GenresLibraryPage(api),
         GenreLibraryPage(api),
@@ -110,7 +115,7 @@ class SessionBrowserCallback(
             extras.putInt(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_PLAYABLE, contentStyle)
             setMediaId(Json.encodeToString<LibraryMediaId>(LibraryMediaId.Route(action.route)))
         } else if (action is LibraryItemAction.Play) {
-            setMediaId(Json.encodeToString<LibraryMediaId>(LibraryMediaId.Item(action.item.id, route)))
+            setMediaId(Json.encodeToString<LibraryMediaId>(LibraryMediaId.Item(action.item.id, action.queue ?: route)))
             action.item.userData?.playbackPositionTicks?.ticks?.inWholeMilliseconds?.let {
                 extras.putLong(MEDIA_ITEM_EXTRA_START_POSITION, it)
             }
@@ -222,6 +227,38 @@ class SessionBrowserCallback(
         } else {
             LibraryResult.ofItemList(items, params)
         }
+    }
+
+    /** Everything on [route]'s page, as far as one request goes. */
+    private suspend fun contentOf(route: LibraryRoute): List<MediaItem> {
+        @Suppress("UNCHECKED_CAST")
+        return (route.page as? LibraryPage<LibraryRoute>)
+            ?.getContent(route, 0, MAX_PAGE_SIZE)
+            ?.toMediaItems(route)
+            .orEmpty()
+    }
+
+    /** What to play for a voice request, and which of it to start at. */
+    private suspend fun voiceQueue(requested: MediaItem): Pair<List<MediaItem>, Int> {
+        val request = VoicePlay.Request.from(requested.requestMetadata.searchQuery, requested.requestMetadata.extras)
+        Timber.d("Search requested $request")
+
+        val queue = VoicePlay.resolve(api, request)
+        val items = when (queue) {
+            is VoicePlay.Queue.Single -> listOf(
+                LibraryPageElement.baseItem(api, queue.item).toMediaItem(LibraryRoute.Search(request.query)),
+            )
+            is VoicePlay.Queue.FromRoute -> contentOf(queue.route).filter { it.itemIdOrNull() != null }
+            null -> emptyList()
+        }
+
+        // Android Auto does not support session error reporting
+        // but Google Play requires feedback on all search requests
+        // so fall back to shuffling everything if nothing matched
+        if (items.isEmpty()) return contentOf(LibraryRoute.ShuffleAll) to 0
+
+        val startItemId = (queue as? VoicePlay.Queue.FromRoute)?.startItemId ?: return items to 0
+        return items to items.indexOfFirst { it.itemIdOrNull() == startItemId }.coerceAtLeast(0)
     }
 
     override fun onGetLibraryRoot(
@@ -392,31 +429,11 @@ class SessionBrowserCallback(
             }.getOrNull()
 
             when {
-                // Play via search
+                // Play via search: "Hey Google, play … on Finesse"
                 firstItem.mediaId == MediaItem.DEFAULT_MEDIA_ID && firstItem.requestMetadata.mediaUri == null -> {
-                    val search = firstItem.requestMetadata.searchQuery
-                    Timber.d("Search requested $search")
-
-                    val route = if (search.isNullOrEmpty()) LibraryRoute.Suggested
-                    else LibraryRoute.Search(search)
-
-                    @Suppress("UNCHECKED_CAST")
-                    expandedItems = (route.page as? LibraryPage<LibraryRoute>)
-                        ?.getContent(route, 0, MAX_PAGE_SIZE)
-                        ?.toMediaItems(route)
-                        .orEmpty()
-
-                    // Android Auto does not support session error reporting
-                    // but Google Play requires feedback on all search requests
-                    // so fallback to random item playback if no search results are found
-                    if (expandedItems.isEmpty()) {
-                        @Suppress("UNCHECKED_CAST")
-                        expandedItems = (LibraryRoute.Suggested.page as LibraryPage<LibraryRoute>)
-                            .getContent(LibraryRoute.Suggested, 0, MAX_PAGE_SIZE)
-                            .toMediaItems(route)
-                    }
-
-                    newStartIndex = 0
+                    val (items, index) = voiceQueue(firstItem)
+                    expandedItems = items
+                    newStartIndex = index
                 }
 
                 // Expand media item to full playlist
@@ -431,9 +448,7 @@ class SessionBrowserCallback(
                         .orEmpty()
 
                     newStartIndex = expandedItems
-                        .indexOfFirst {
-                            (Json.decodeFromString<LibraryMediaId>(it.mediaId) as? LibraryMediaId.Item)?.itemId == libraryMediaId.itemId
-                        }
+                        .indexOfFirst { it.itemIdOrNull() == libraryMediaId.itemId }
                         .coerceAtLeast(0)
                 }
             }
@@ -441,7 +456,7 @@ class SessionBrowserCallback(
 
         // Use the server-side stored position if there is no requested start position
         val newStartPositionMs = when (startPositionMs) {
-            0L, C.TIME_UNSET -> expandedItems.firstOrNull()?.mediaMetadata?.extras?.getLong(
+            0L, C.TIME_UNSET -> expandedItems.getOrNull(newStartIndex)?.mediaMetadata?.extras?.getLong(
                 MEDIA_ITEM_EXTRA_START_POSITION,
                 startPositionMs
             ) ?: startPositionMs
@@ -505,3 +520,6 @@ class SessionBrowserCallback(
         }
     }
 }
+
+private fun MediaItem.itemIdOrNull(): UUID? =
+    (runCatching { Json.decodeFromString<LibraryMediaId>(mediaId) }.getOrNull() as? LibraryMediaId.Item)?.itemId
