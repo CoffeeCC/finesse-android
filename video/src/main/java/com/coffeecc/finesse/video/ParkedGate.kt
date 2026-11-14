@@ -2,6 +2,7 @@ package com.coffeecc.finesse.video
 
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.car.app.CarContext
 import androidx.car.app.hardware.CarHardwareManager
 import androidx.car.app.hardware.common.CarValue
@@ -13,9 +14,10 @@ import android.util.Log
 /**
  * Whether video may show: only while the car is stopped, judged from the car's own speed.
  *
- * Android Auto doesn't tell apps the gear, so "parked" here means "stopped for a while": the speed
- * must stay at walking pace or below for [parkedAfterStoppedMs] before video is allowed, and any
- * movement blocks it at once. Playback never restarts by itself after moving (see VideoPlayerScreen).
+ * Android Auto doesn't tell apps the gear, so "parked" here means "stopped for a while". The
+ * rules themselves are in [ParkedRules] (and tested there); this class only connects them to the
+ * car's speed readings and a timer. Playback never restarts by itself after moving (see
+ * VideoPlayerScreen).
  *
  * It fails safe: until the car has reported a speed, and whenever it can't, the answer is
  * [State.Unknown], which blocks video like [State.Moving] does.
@@ -29,37 +31,26 @@ class ParkedGate(
     var state: State = State.Unknown
         private set
 
+    private val rules = ParkedRules()
     private val handler = Handler(Looper.getMainLooper())
     private var listening = false
 
-    // Below this the car counts as stopped (~2 mph, so GPS-style jitter at a standstill doesn't count).
-    private val stoppedBelowMetersPerSecond = 1f
+    // A clock that never jumps: the time of day does when the phone corrects it, which phones do
+    // on connecting to a car, and a forward jump would cut the wait short.
+    private fun now() = SystemClock.elapsedRealtime()
 
-    // Stopped this long before video is allowed. A stopped car may not report its speed again, so a
-    // timer re-checks instead of waiting for the next report.
-    private val parkedAfterStoppedMs = 10_000L
-    private var stoppedSince = 0L
-    private val confirmParked = Runnable {
-        if (stoppedSince != 0L && System.currentTimeMillis() - stoppedSince >= parkedAfterStoppedMs) set(State.Parked)
-    }
+    // A stopped car may not report its speed again, so a timer re-checks instead of waiting for
+    // the next report. It only ever confirms what the latest reading said.
+    private val confirmParked = Runnable { publish(rules.check(now())) }
 
     private val listener = OnCarDataAvailableListener<Speed> { speed ->
         val value = speed.rawSpeedMetersPerSecond
-        if (value.status != CarValue.STATUS_SUCCESS || value.value == null) {
-            set(State.Unknown)
-            return@OnCarDataAvailableListener
-        }
-        val metersPerSecond = value.value!!
-        if (metersPerSecond >= stoppedBelowMetersPerSecond) {
-            stoppedSince = 0L
-            handler.removeCallbacks(confirmParked)
-            set(State.Moving)
-        } else if (stoppedSince == 0L) {
-            stoppedSince = System.currentTimeMillis()
-            handler.postDelayed(confirmParked, parkedAfterStoppedMs)
-        } else {
-            confirmParked.run()
-        }
+        val metersPerSecond = if (value.status == CarValue.STATUS_SUCCESS) value.value else null
+        val next = rules.onReading(metersPerSecond, now())
+        // One timer at most, for exactly as long as the rules still need.
+        handler.removeCallbacks(confirmParked)
+        rules.waitMs(now())?.let { handler.postDelayed(confirmParked, it) }
+        publish(next)
     }
 
     fun start() {
@@ -70,10 +61,10 @@ class ParkedGate(
             carInfo.addSpeedListener(ContextCompat.getMainExecutor(carContext), listener)
         } catch (e: SecurityException) {
             Log.w(TAG, "No permission to read the car's speed", e)
-            set(State.Unknown)
+            publish(rules.unavailable())
         } catch (e: IllegalStateException) {
             Log.w(TAG, "The car's speed isn't available", e)
-            set(State.Unknown)
+            publish(rules.unavailable())
         }
     }
 
@@ -81,6 +72,10 @@ class ParkedGate(
         if (!listening) return
         listening = false
         handler.removeCallbacksAndMessages(null)
+        // Not listening any more means not knowing: the next start waits the full time again.
+        // (Said quietly: the screen is going away, so there's nobody to tell.)
+        rules.unavailable()
+        state = State.Unknown
         runCatching {
             carContext.getCarService(CarHardwareManager::class.java).carInfo.removeSpeedListener(listener)
         }
@@ -90,9 +85,14 @@ class ParkedGate(
         const val TAG = "FinesseVideo"
     }
 
-    private fun set(next: State) {
-        if (next == state) return
-        state = next
-        onChange(next)
+    private fun publish(next: ParkedRules.State) {
+        val mapped = when (next) {
+            ParkedRules.State.Parked -> State.Parked
+            ParkedRules.State.Moving -> State.Moving
+            ParkedRules.State.Unknown -> State.Unknown
+        }
+        if (mapped == state) return
+        state = mapped
+        onChange(mapped)
     }
 }
