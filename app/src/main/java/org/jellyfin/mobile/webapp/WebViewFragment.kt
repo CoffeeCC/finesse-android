@@ -62,6 +62,7 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
 
     lateinit var server: ServerEntity
         private set
+
     @Volatile
     private var connected = false
     private val timeoutRunnable = Runnable {

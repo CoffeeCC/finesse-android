@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import androidx.core.net.toUri
 import androidx.core.os.bundleOf
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -389,7 +390,8 @@ class SessionBrowserCallback(
                 } else {
                     runCatching {
                         val item by api.userLibraryApi.getItem(itemId = libraryMediaId.itemId)
-                        LibraryResult.ofItem(LibraryPageElement.baseItem(api, item).toMediaItem(libraryMediaId.route), null)
+                        val mediaItem = LibraryPageElement.baseItem(api, item).toMediaItem(libraryMediaId.route)
+                        LibraryResult.ofItem(mediaItem, null)
                     }.getOrElse { error ->
                         Timber.w(error, "Failed to load item %s", libraryMediaId.itemId)
                         LibraryResult.ofError(
@@ -458,7 +460,7 @@ class SessionBrowserCallback(
                 enableRemoteMedia = true,
             )
 
-            val signedUri = Uri.parse(playbackUri).buildUpon()
+            val signedUri = playbackUri.toUri().buildUpon()
                 .appendQueryParameter("ApiKey", token)
                 .build()
             it.buildUpon().apply {
