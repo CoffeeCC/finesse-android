@@ -62,6 +62,7 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
 
     lateinit var server: ServerEntity
         private set
+    @Volatile
     private var connected = false
     private val timeoutRunnable = Runnable {
         handleError()
@@ -77,7 +78,9 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
     private var fileChooserActivityLauncher: ActivityResultLauncher<Intent> = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
-        fileChooserCallback?.onReceiveValue(FileChooserParams.parseResult(result.resultCode, result.data))
+        val callback = fileChooserCallback
+        fileChooserCallback = null
+        callback?.onReceiveValue(FileChooserParams.parseResult(result.resultCode, result.data))
     }
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
 
@@ -95,16 +98,17 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
             mainViewModel,
         ) {
             override fun onConnectedToWebapp() {
-                val webViewBinding = webViewBinding ?: return
-                val webView = webViewBinding.webView
-                webView.removeCallbacks(timeoutRunnable)
-                webView.removeCallbacks(showLoadingContainerRunnable)
+                if (connected) return
                 connected = true
                 runOnUiThread {
-                    webViewBinding.loadingContainer.isVisible = false
+                    val binding = webViewBinding ?: return@runOnUiThread
+                    val webView = binding.webView
+                    webView.removeCallbacks(timeoutRunnable)
+                    webView.removeCallbacks(showLoadingContainerRunnable)
+                    binding.loadingContainer.isVisible = false
                     webView.fadeIn()
+                    requestNoBatteryOptimizations(binding.root)
                 }
-                requestNoBatteryOptimizations(webViewBinding.root)
             }
 
             override fun onErrorReceived() {
@@ -178,8 +182,17 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
     }
 
     override fun onDestroyView() {
-        super.onDestroyView()
+        fileChooserCallback?.onReceiveValue(null)
+        fileChooserCallback = null
+        webViewBinding?.webView?.apply {
+            removeCallbacks(timeoutRunnable)
+            removeCallbacks(showLoadingContainerRunnable)
+            stopLoading()
+            destroy()
+        }
         webViewBinding = null
+        connected = false
+        super.onDestroyView()
     }
 
     private fun WebView.initialize() {
@@ -265,6 +278,7 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
     }
 
     override fun onShowFileChooser(intent: Intent, filePathCallback: ValueCallback<Array<Uri>>) {
+        fileChooserCallback?.onReceiveValue(null)
         fileChooserCallback = filePathCallback
         fileChooserActivityLauncher.launch(intent)
     }

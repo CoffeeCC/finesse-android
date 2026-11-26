@@ -3,6 +3,7 @@ name: App / Lint
 on:
   push:
     branches:
+      - main
       - master
       - release-*
   pull_request:

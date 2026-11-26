@@ -1,5 +1,7 @@
 package org.jellyfin.mobile.sessionbrowser
 
+import android.app.PendingIntent
+import android.content.Intent
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -9,7 +11,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import kotlinx.coroutines.runBlocking
+import org.jellyfin.mobile.MainActivity
 import org.jellyfin.mobile.app.ApiClientController
+import org.jellyfin.mobile.utils.Constants
 import org.jellyfin.sdk.api.client.ApiClient
 import org.koin.android.ext.android.inject
 
@@ -30,7 +34,12 @@ class LibraryService : MediaLibraryService() {
     }
 
     private val mediaLibrarySession: MediaLibrarySession by lazy {
+        val launchIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val sessionActivity = PendingIntent.getActivity(this, 0, launchIntent, Constants.PENDING_INTENT_FLAGS)
         MediaLibrarySession.Builder(this, exoPlayer, callback)
+            .setSessionActivity(sessionActivity)
             .build()
     }
 

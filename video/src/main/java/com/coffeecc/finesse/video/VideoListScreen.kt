@@ -10,8 +10,12 @@ import androidx.car.app.model.MessageTemplate
 import androidx.car.app.model.Row
 import androidx.car.app.model.SectionedItemList
 import androidx.car.app.model.Template
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.util.Log
@@ -26,8 +30,9 @@ import org.jellyfin.sdk.model.extensions.ticks
 import kotlin.time.Duration
 
 /** What to watch: Continue watching, then recently added films and episodes. */
-class VideoListScreen(carContext: CarContext) : Screen(carContext) {
+class VideoListScreen(carContext: CarContext) : Screen(carContext), DefaultLifecycleObserver {
     private var api: ApiClient? = null
+    private var hasLoadedOnce = false
 
     private sealed interface State {
         data object Loading : State
@@ -38,7 +43,13 @@ class VideoListScreen(carContext: CarContext) : Screen(carContext) {
     private var state: State = State.Loading
 
     init {
+        lifecycle.addObserver(this)
         lifecycleScope.launch { load() }
+    }
+
+    override fun onResume(owner: LifecycleOwner) {
+        // Refresh Continue watching when returning from the video player.
+        if (hasLoadedOnce) lifecycleScope.launch { load() }
     }
 
     private suspend fun load() {
@@ -50,28 +61,36 @@ class VideoListScreen(carContext: CarContext) : Screen(carContext) {
                 val api = signIn.api
                 this.api = api
                 val types = listOf(BaseItemKind.MOVIE, BaseItemKind.EPISODE)
-                val resume by api.itemsApi.getItems(
-                    includeItemTypes = types,
-                    filters = listOf(ItemFilter.IS_RESUMABLE),
-                    sortBy = listOf(ItemSortBy.DATE_PLAYED),
-                    sortOrder = listOf(SortOrder.DESCENDING),
-                    recursive = true,
-                    limit = MAX_ITEMS,
-                )
-                val recent by api.itemsApi.getItems(
-                    includeItemTypes = types,
-                    sortBy = listOf(ItemSortBy.DATE_CREATED),
-                    sortOrder = listOf(SortOrder.DESCENDING),
-                    recursive = true,
-                    limit = MAX_ITEMS,
-                )
-                val resumeIds = resume.items.map { it.id }.toSet()
-                State.Ready(resume.items, recent.items.filter { it.id !in resumeIds })
+                val (resumeItems, recentItems) = coroutineScope {
+                    val resumeJob = async(Dispatchers.IO) {
+                        api.itemsApi.getItems(
+                            includeItemTypes = types,
+                            filters = listOf(ItemFilter.IS_RESUMABLE),
+                            sortBy = listOf(ItemSortBy.DATE_PLAYED),
+                            sortOrder = listOf(SortOrder.DESCENDING),
+                            recursive = true,
+                            limit = MAX_ITEMS,
+                        ).content.items
+                    }
+                    val recentJob = async(Dispatchers.IO) {
+                        api.itemsApi.getItems(
+                            includeItemTypes = types,
+                            sortBy = listOf(ItemSortBy.DATE_CREATED),
+                            sortOrder = listOf(SortOrder.DESCENDING),
+                            recursive = true,
+                            limit = MAX_ITEMS,
+                        ).content.items
+                    }
+                    resumeJob.await() to recentJob.await()
+                }
+                val resumeIds = resumeItems.map { it.id }.toSet()
+                State.Ready(resumeItems, recentItems.filter { it.id !in resumeIds })
             }
         } catch (e: Exception) {
             Log.e("FinesseVideo", "Couldn't load videos", e)
             State.Message("Couldn't reach your Finesse server. Check that the phone is online (and Tailscale is on, if you use it).")
         }
+        hasLoadedOnce = true
         invalidate()
     }
 

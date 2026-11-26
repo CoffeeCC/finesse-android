@@ -62,6 +62,7 @@ class SessionBrowserCallback(
     companion object {
         const val MAX_PAGE_SIZE = 250
         const val MEDIA_ITEM_EXTRA_START_POSITION = "start_position"
+        private const val MAX_ARTWORK_GRANTS = 250
 
         // Android Auto, and the desktop head unit used to test it.
         private val CAR_HOST_PACKAGES = listOf(
@@ -69,6 +70,8 @@ class SessionBrowserCallback(
             "com.google.android.apps.automotive.templates.host",
         )
     }
+
+    private val grantedArtwork = LinkedHashSet<Uri>()
 
     val pages = listOf(
         RootLibraryPage(api),
@@ -143,10 +146,19 @@ class SessionBrowserCallback(
 
     /**
      * Artwork is served by the app's ImageProvider, which only apps holding a system media permission
-     * may read. Let Android Auto read each artwork address outright, so the art shows on any phone.
+     * may read. Let Android Auto read each artwork address outright, bounded so long browsing
+     * sessions never hit Android 12+'s active URI grant limit.
      */
     private fun grantToCarHosts(uri: Uri) {
         if (uri.scheme != ContentResolver.SCHEME_CONTENT) return
+        synchronized(grantedArtwork) {
+            if (!grantedArtwork.add(uri)) return
+            while (grantedArtwork.size > MAX_ARTWORK_GRANTS) {
+                val oldest = grantedArtwork.iterator().next()
+                grantedArtwork.remove(oldest)
+                runCatching { context.revokeUriPermission(oldest, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            }
+        }
         for (pkg in CAR_HOST_PACKAGES) {
             runCatching { context.grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
         }
@@ -214,11 +226,20 @@ class SessionBrowserCallback(
         }
 
         @Suppress("UNCHECKED_CAST")
-        val items = (page as? LibraryPage<LibraryRoute>)?.getContent(
-            route,
-            pageIndex * pageSize,
-            minOf(pageSize, MAX_PAGE_SIZE),
-        )?.toMediaItems(route)
+        val itemsResult = runCatching {
+            (page as? LibraryPage<LibraryRoute>)?.getContent(
+                route,
+                pageIndex * pageSize,
+                minOf(pageSize, MAX_PAGE_SIZE),
+            )?.toMediaItems(route)
+        }
+        if (itemsResult.isFailure) {
+            Timber.w(itemsResult.exceptionOrNull(), "Failed to load car library page %s", route)
+            return LibraryResult.ofError(
+                SessionError(SessionError.ERROR_IO, context.getString(R.string.media_service_no_items)),
+            )
+        }
+        val items = itemsResult.getOrNull()
 
         return if (items == null) {
             LibraryResult.ofError(
@@ -240,22 +261,29 @@ class SessionBrowserCallback(
 
     /** What to play for a voice request, and which of it to start at. */
     private suspend fun voiceQueue(requested: MediaItem): Pair<List<MediaItem>, Int> {
+        if (api.baseUrl == null || api.accessToken == null) return emptyList<MediaItem>() to 0
         val request = VoicePlay.Request.from(requested.requestMetadata.searchQuery, requested.requestMetadata.extras)
         Timber.d("Search requested $request")
 
-        val queue = VoicePlay.resolve(api, request)
-        val items = when (queue) {
-            is VoicePlay.Queue.Single -> listOf(
-                LibraryPageElement.baseItem(api, queue.item).toMediaItem(LibraryRoute.Search(request.query)),
-            )
-            is VoicePlay.Queue.FromRoute -> contentOf(queue.route).filter { it.itemIdOrNull() != null }
-            null -> emptyList()
-        }
+        val queue = runCatching { VoicePlay.resolve(api, request) }
+            .onFailure { Timber.w(it, "Voice search failed for %s", request.query) }
+            .getOrNull()
+        val items = runCatching {
+            when (queue) {
+                is VoicePlay.Queue.Single -> listOf(
+                    LibraryPageElement.baseItem(api, queue.item).toMediaItem(LibraryRoute.Search(request.query)),
+                )
+                is VoicePlay.Queue.FromRoute -> contentOf(queue.route).filter { it.itemIdOrNull() != null }
+                null -> emptyList()
+            }
+        }.getOrElse { emptyList() }
 
         // Android Auto does not support session error reporting
         // but Google Play requires feedback on all search requests
         // so fall back to shuffling everything if nothing matched
-        if (items.isEmpty()) return contentOf(LibraryRoute.ShuffleAll) to 0
+        if (items.isEmpty()) {
+            return runCatching { contentOf(LibraryRoute.ShuffleAll) }.getOrElse { emptyList() } to 0
+        }
 
         val startItemId = (queue as? VoicePlay.Queue.FromRoute)?.startItemId ?: return items to 0
         return items to items.indexOfFirst { it.itemIdOrNull() == startItemId }.coerceAtLeast(0)
@@ -315,6 +343,14 @@ class SessionBrowserCallback(
         params: LibraryParams?,
     ): ListenableFuture<LibraryResult<Void>> = CoroutineScope(Dispatchers.IO).future {
         Timber.d("onSearch $query $params")
+        if (api.baseUrl == null || api.accessToken == null) {
+            return@future LibraryResult.ofError(
+                SessionError(
+                    SessionError.ERROR_SESSION_AUTHENTICATION_EXPIRED,
+                    context.getString(R.string.media_service_auth_expired),
+                ),
+            )
+        }
 
         // Add fake item count because we have not actually searched yet
         session.notifySearchResultChanged(browser, query, 1, params)
@@ -343,8 +379,24 @@ class SessionBrowserCallback(
         val libraryMediaId = runCatching { Json.decodeFromString<LibraryMediaId>(mediaId) }.getOrNull()
         when (libraryMediaId) {
             is LibraryMediaId.Item -> {
-                val item by api.userLibraryApi.getItem(itemId = libraryMediaId.itemId)
-                LibraryResult.ofItem(LibraryPageElement.baseItem(api, item).toMediaItem(libraryMediaId.route), null)
+                if (api.baseUrl == null || api.accessToken == null) {
+                    LibraryResult.ofError(
+                        SessionError(
+                            SessionError.ERROR_SESSION_AUTHENTICATION_EXPIRED,
+                            context.getString(R.string.media_service_auth_expired),
+                        ),
+                    )
+                } else {
+                    runCatching {
+                        val item by api.userLibraryApi.getItem(itemId = libraryMediaId.itemId)
+                        LibraryResult.ofItem(LibraryPageElement.baseItem(api, item).toMediaItem(libraryMediaId.route), null)
+                    }.getOrElse { error ->
+                        Timber.w(error, "Failed to load item %s", libraryMediaId.itemId)
+                        LibraryResult.ofError(
+                            SessionError(SessionError.ERROR_IO, context.getString(R.string.media_service_no_items)),
+                        )
+                    }
+                }
             }
 
             is LibraryMediaId.Route -> {
@@ -375,6 +427,11 @@ class SessionBrowserCallback(
     ): ListenableFuture<List<MediaItem>> = CoroutineScope(Dispatchers.IO).future {
         Timber.d("onAddMediaItems $mediaSession $controller $mediaItems")
 
+        val token = api.accessToken
+        if (api.baseUrl == null || token.isNullOrBlank()) {
+            return@future emptyList()
+        }
+
         mediaItems.mapNotNull {
             val libraryMediaId = runCatching { Json.decodeFromString<LibraryMediaId>(it.mediaId) }.getOrNull()
             if (libraryMediaId !is LibraryMediaId.Item) return@mapNotNull null
@@ -401,8 +458,11 @@ class SessionBrowserCallback(
                 enableRemoteMedia = true,
             )
 
+            val signedUri = Uri.parse(playbackUri).buildUpon()
+                .appendQueryParameter("ApiKey", token)
+                .build()
             it.buildUpon().apply {
-                setUri(playbackUri + "&ApiKey=${api.accessToken}")
+                setUri(signedUri)
             }.build()
         }
     }
@@ -436,16 +496,21 @@ class SessionBrowserCallback(
                     newStartIndex = index
                 }
 
-                // Expand media item to full playlist
+                // Expand media item to full playlist (always load from offset 0; startIndex may be C.INDEX_UNSET)
                 libraryMediaId is LibraryMediaId.Item -> {
                     Timber.d("Expanding item $libraryMediaId")
                     val page = libraryMediaId.route.page
 
                     @Suppress("UNCHECKED_CAST")
-                    expandedItems = (page as? LibraryPage<LibraryRoute>)
-                        ?.getContent(libraryMediaId.route, startIndex, MAX_PAGE_SIZE)
-                        ?.toMediaItems(libraryMediaId.route)
-                        .orEmpty()
+                    expandedItems = runCatching {
+                        (page as? LibraryPage<LibraryRoute>)
+                            ?.getContent(libraryMediaId.route, 0, MAX_PAGE_SIZE)
+                            ?.toMediaItems(libraryMediaId.route)
+                            .orEmpty()
+                    }.getOrElse { error ->
+                        Timber.w(error, "Failed to expand playlist %s", libraryMediaId.route)
+                        listOf(firstItem)
+                    }
 
                     newStartIndex = expandedItems
                         .indexOfFirst { it.itemIdOrNull() == libraryMediaId.itemId }
@@ -487,6 +552,9 @@ class SessionBrowserCallback(
         isForPlayback: Boolean,
     ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = CoroutineScope(Dispatchers.IO).future {
         Timber.d("onPlaybackResumption $controller isForPlayback=$isForPlayback")
+        if (api.baseUrl == null || api.accessToken == null) {
+            throw UnsupportedOperationException("Not signed in")
+        }
 
         val saved = resumption.load() ?: throw UnsupportedOperationException("Nothing played yet")
         val ids = saved.mediaIds.map { id ->

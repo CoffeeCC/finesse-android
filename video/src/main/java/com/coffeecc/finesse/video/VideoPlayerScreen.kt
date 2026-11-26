@@ -65,6 +65,7 @@ class VideoPlayerScreen(
     private var playerView: PlayerView? = null
     private var visibleArea: Rect? = null
     private var error: String? = null
+    private var prepared = false
 
     private val gate = ParkedGate(carContext) { state -> onParkedChanged(state) }
 
@@ -99,6 +100,13 @@ class VideoPlayerScreen(
     // ---- Player ----
 
     private fun createPlayer() {
+        val url = streamUrl()
+        if (url == null) {
+            error = "Not signed in to a Finesse server."
+            render()
+            invalidate()
+            return
+        }
         val exo = ExoPlayer.Builder(carContext).build().apply {
             setAudioAttributes(
                 AudioAttributes.Builder()
@@ -109,7 +117,7 @@ class VideoPlayerScreen(
             )
             setMediaItem(
                 MediaItem.Builder()
-                    .setUri(streamUrl())
+                    .setUri(url)
                     .setMimeType(MimeTypes.APPLICATION_M3U8)
                     .build(),
                 resumePositionMs(),
@@ -119,19 +127,27 @@ class VideoPlayerScreen(
 
                 override fun onPlayerError(e: PlaybackException) {
                     Log.e(TAG, "Video playback failed", e)
-                    error = "Couldn't play this. Check that the phone is online."
+                    error = "Couldn't play this. Check that the phone is online, then press Play to try again."
                     render()
                     invalidate()
                 }
             })
-            prepare()
         }
         player = exo
         playerView?.player = exo
+        if (mayShowVideo) ensurePrepared(exo)
+    }
+
+    private fun ensurePrepared(exo: ExoPlayer) {
+        if (!prepared) {
+            prepared = true
+            exo.prepare()
+        }
     }
 
     /** Jellyfin, behind Finesse at <address>/jellyfin, makes an HLS stream sized for a car screen. */
-    private fun streamUrl(): String {
+    private fun streamUrl(): String? {
+        val baseUrl = api.baseUrl?.trimEnd('/') ?: return null
         val id = item.id.toString().replace("-", "")
         val params = listOf(
             "MediaSourceId" to id,
@@ -146,7 +162,7 @@ class VideoPlayerScreen(
             "SegmentContainer" to "ts",
             "ApiKey" to api.accessToken.orEmpty(),
         ).joinToString("&") { (k, v) -> "$k=${android.net.Uri.encode(v)}" }
-        return "${api.baseUrl!!.trimEnd('/')}/Videos/$id/master.m3u8?$params"
+        return "$baseUrl/Videos/$id/master.m3u8?$params"
     }
 
     private fun resumePositionMs(): Long =
@@ -154,7 +170,8 @@ class VideoPlayerScreen(
 
     /** Tell the server where we got to, so Continue watching picks up there (and the transcode stops). */
     private fun reportStopped() {
-        val positionMs = player?.currentPosition ?: return
+        if (!prepared || api.accessToken.isNullOrBlank()) return
+        val positionMs = player?.currentPosition?.coerceAtLeast(0L) ?: return
         val info = PlaybackStopInfo(
             itemId = item.id,
             mediaSourceId = item.id.toString().replace("-", ""),
@@ -172,7 +189,11 @@ class VideoPlayerScreen(
     // ---- Parked only ----
 
     private fun onParkedChanged(state: ParkedGate.State) {
-        if (state != ParkedGate.State.Parked) player?.pause()
+        if (state != ParkedGate.State.Parked) {
+            player?.pause()
+        } else {
+            player?.let(::ensurePrepared)
+        }
         render()
         invalidate()
     }
@@ -277,7 +298,15 @@ class VideoPlayerScreen(
                         val p = player ?: return@setOnClickListener
                         if (p.isPlaying) {
                             p.pause()
-                        } else if (mayShowVideo && error == null) {
+                        } else if (mayShowVideo) {
+                            if (error != null) {
+                                error = null
+                                prepared = true
+                                p.prepare()
+                                render()
+                            } else {
+                                ensurePrepared(p)
+                            }
                             p.play()
                         }
                         invalidate()
@@ -287,13 +316,19 @@ class VideoPlayerScreen(
             .addAction(
                 Action.Builder()
                     .setTitle("−10s")
-                    .setOnClickListener { player?.let { it.seekTo((it.currentPosition - 10_000).coerceAtLeast(0)) } }
+                    .setOnClickListener { player?.let { it.seekTo((it.currentPosition - SEEK_BACK_MS).coerceAtLeast(0)) } }
                     .build(),
             )
             .addAction(
                 Action.Builder()
                     .setTitle("+30s")
-                    .setOnClickListener { player?.let { it.seekTo(it.currentPosition + 30_000) } }
+                    .setOnClickListener {
+                        player?.let { p ->
+                            val target = p.currentPosition + SEEK_FORWARD_MS
+                            val clamped = if (p.duration != C.TIME_UNSET) target.coerceAtMost(p.duration) else target
+                            p.seekTo(clamped)
+                        }
+                    }
                     .build(),
             )
             .addAction(
@@ -312,5 +347,7 @@ class VideoPlayerScreen(
         const val TAG = "FinesseVideo"
         const val CAR_SPEED = "com.google.android.gms.permission.CAR_SPEED"
         const val TICKS_PER_MS = 10_000L
+        const val SEEK_BACK_MS = 10_000L
+        const val SEEK_FORWARD_MS = 30_000L
     }
 }

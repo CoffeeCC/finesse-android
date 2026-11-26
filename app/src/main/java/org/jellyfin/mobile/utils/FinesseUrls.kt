@@ -13,11 +13,16 @@ object FinesseUrls {
     private const val HTTP_PORT = 80
     private const val HTTPS_PORT = 443
 
-    /** What someone typed (their Finesse address, with or without `/finesse`) → the Jellyfin address behind it. */
+    /** What someone typed (their Finesse address, with or without `/finesse/...`) → the Jellyfin address behind it. */
     fun jellyfinAddress(entered: String): String {
-        val base = entered.trim().trimEnd('/')
-            .removeSuffixIgnoreCase(FINESSE_PATH)
-            .removeSuffixIgnoreCase(JELLYFIN_PATH)
+        val cleaned = entered.trim()
+            .substringBefore('#')
+            .substringBefore('?')
+            .trimEnd('/')
+        val base = cleaned
+            .removePathPrefixIgnoreCase(FINESSE_PATH)
+            .removePathPrefixIgnoreCase(JELLYFIN_PATH)
+            .trimEnd('/')
         return base + JELLYFIN_PATH
     }
 
@@ -47,4 +52,14 @@ object FinesseUrls {
 
     private fun String.removeSuffixIgnoreCase(suffix: String): String =
         if (endsWith(suffix, ignoreCase = true)) dropLast(suffix.length) else this
+
+    /** Drops `/finesse` or `/finesse/anything` from the end of a pasted address. */
+    private fun String.removePathPrefixIgnoreCase(segment: String): String {
+        val lower = lowercase()
+        val target = segment.lowercase()
+        val idx = lower.indexOf(target)
+        if (idx < 0) return this
+        val after = idx + target.length
+        return if (after == length || this[after] == '/') substring(0, idx) else this
+    }
 }
