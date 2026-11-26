@@ -5,6 +5,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 // the main app's sign-in through its SessionShareProvider, so both must be signed with the same key.
 plugins {
     alias(libs.plugins.android.app)
+    alias(libs.plugins.android.junit5)
 }
 
 kotlin {
@@ -58,4 +59,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime)
     implementation(libs.jellyfin.sdk)
     implementation(libs.bundles.coroutines)
+    // The parked rules are plain Kotlin and tested as such (ParkedRulesTest).
+    testImplementation(libs.junit.api)
+    testRuntimeOnly(libs.junit.engine)
 }

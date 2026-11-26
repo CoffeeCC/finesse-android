@@ -67,8 +67,8 @@ abstract class JellyfinWebViewClient(
                     val token = session?.get("token")?.jsonPrimitive?.contentOrNull
 
                     if (user == null || token == null) {
-                        Timber.e("Unable to find user in webview credentials")
-                        onErrorReceived()
+                        // Don't kick the user back to server setup if localStorage hasn't written the session yet.
+                        Timber.w("Finesse session not yet available in webview storage")
                         return@launch
                     }
 

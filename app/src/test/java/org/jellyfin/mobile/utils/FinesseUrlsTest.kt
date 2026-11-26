@@ -13,6 +13,14 @@ class FinesseUrlsTest {
         assertEquals("http://nas:8080/jellyfin", FinesseUrls.jellyfinAddress("http://nas:8080/finesse/"))
         assertEquals("http://nas:8080/jellyfin", FinesseUrls.jellyfinAddress(" http://nas:8080/Jellyfin "))
         assertEquals("https://home.example.ts.net/jellyfin", FinesseUrls.jellyfinAddress("https://home.example.ts.net"))
+        assertEquals(
+            "https://home.example.ts.net/jellyfin",
+            FinesseUrls.jellyfinAddress("https://home.example.ts.net/finesse/home?tab=1#top"),
+        )
+        assertEquals(
+            "http://192.168.1.20:8080/jellyfin",
+            FinesseUrls.jellyfinAddress("http://192.168.1.20:8080/finesse/games/store"),
+        )
     }
 
     @Test

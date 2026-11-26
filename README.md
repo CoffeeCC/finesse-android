@@ -29,8 +29,10 @@ read, so install both from the same place. Open Finesse Video on the phone once 
 it shows whether it found the sign-in, and lets Android Auto find it.
 
 Android Auto doesn't tell apps the gear, so the app reads the car's speed: video is allowed after
-10 seconds stopped, pauses and is covered the moment the car moves, and never restarts by itself.
-If the car doesn't share its speed, video stays off. It draws on the surface Android Auto gives
+10 unbroken seconds stopped, pauses and is covered the moment the car moves (forwards or in
+reverse), and never restarts by itself. If the car doesn't share its speed, or stops being able to
+part-way, video stays off and the wait starts over. The rules are in `ParkedRules` and tested by
+`./gradlew :video:testDebugUnitTest`. It draws on the surface Android Auto gives
 navigation apps, which Google doesn't intend for video, so an Android Auto update may break it, and
 it can't go on the Play Store.
 

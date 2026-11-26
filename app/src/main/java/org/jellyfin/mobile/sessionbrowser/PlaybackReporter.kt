@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -54,6 +55,7 @@ class PlaybackReporter(private val player: Player, private val api: ApiClient) :
     fun release() {
         player.removeListener(this)
         ticker?.cancel()
+        main.cancel()
         current?.let {
             remember(it)
             stop(it, finished = player.playbackState == Player.STATE_ENDED)
@@ -65,7 +67,10 @@ class PlaybackReporter(private val player: Player, private val api: ApiClient) :
         // Moving on by itself means the last song played to the end.
         val finished = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
             reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
-        current?.let { stop(it, finished) }
+        current?.let {
+            if (!finished) remember(it)
+            stop(it, finished)
+        }
         current = mediaItem?.toPlaying()
         if (player.isPlaying) current?.let(::start)
     }

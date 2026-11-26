@@ -88,6 +88,9 @@ class ImageProvider : ContentProvider(), KoinComponent {
 
     @Suppress("ThrowsCount")
     private fun loadImage(uri: Uri, size: Point?): AssetFileDescriptor {
+        if (apiClient.baseUrl == null) {
+            throw FileNotFoundException("Not signed in to a server")
+        }
         val pathSegments = uri.pathSegments
         if (pathSegments.size < PATH_SEGMENTS_COUNT) {
             throw FileNotFoundException("Unsupported number of parameters")
